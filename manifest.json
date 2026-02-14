@@ -12,7 +12,8 @@
   
     "host_permissions": [
       "https://www.facebook.com/*",
-      "https://www.messenger.com/*"
+      "https://www.messenger.com/*",
+      "https://generativelanguage.googleapis.com/*"
     ],
   
     "background": {
@@ -24,7 +25,15 @@
         "matches": [
           "https://www.facebook.com/marketplace/*"
         ],
-        "js": ["content.js"],
+        "js": ["gemini.js", "content.js"],
+        "all_frames": true
+      },
+      {
+        "matches": [
+          "https://www.facebook.com/messages/*",
+          "https://www.facebook.com/*/messages/*"
+        ],
+        "js": ["gemini.js", "messenger.js"],
         "all_frames": true
       }
     ],

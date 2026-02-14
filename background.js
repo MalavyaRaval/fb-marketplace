@@ -8,6 +8,8 @@ let activeTabId = null;
 let isRunning = false;
 let searchInterval = null;
 let currentKeyword = "bike"; // Default keyword
+let messagesSentCount = 0; // Track how many messages have been sent
+let MAX_MESSAGES = 3; // Maximum number of messages to send (configurable)
 
 /**
  * Gets the marketplace search URL for a given keyword
@@ -104,21 +106,40 @@ async function startSearch(keyword) {
 
   currentKeyword = keyword.trim();
   isRunning = true;
-  console.log(`🔍 Starting background search for: "${currentKeyword}"`);
+  messagesSentCount = 0; // Reset message count when starting new search
+  
+  // Load maxMessages from storage
+  chrome.storage.sync.get(['maxMessages'], (result) => {
+    if (result.maxMessages) {
+      MAX_MESSAGES = parseInt(result.maxMessages) || 3;
+    }
+    console.log(`🔍 Starting background search for: "${currentKeyword}"`);
+    console.log(`📊 Will stop after sending ${MAX_MESSAGES} messages`);
+  });
 
   // Save keyword to storage
   chrome.storage.sync.set({ searchKeyword: currentKeyword });
 
-  // Create initial tab
+  // Create initial marketplace tab
   await createBackgroundTab(currentKeyword);
 
-  // Set up periodic refresh
+  // Note: Messenger monitoring will work on facebook.com/messages automatically
+  // No need to create a separate messenger.com tab
+
+  // Set up periodic refresh (only if we haven't reached max messages)
   searchInterval = setInterval(async () => {
+    // Stop refreshing if we've reached the maximum number of messages
+    if (messagesSentCount >= MAX_MESSAGES) {
+      console.log(`✅ Reached maximum of ${MAX_MESSAGES} messages. Stopping refresh.`);
+      stopSearch();
+      return;
+    }
+    
     if (activeTabId) {
       try {
         // Refresh the marketplace page
         await chrome.tabs.reload(activeTabId);
-        console.log(`🔄 Refreshed marketplace page for: "${currentKeyword}"`);
+        console.log(`🔄 Refreshed marketplace page for: "${currentKeyword}" (${messagesSentCount}/${MAX_MESSAGES} messages sent)`);
       } catch (error) {
         console.error("❌ Error refreshing tab:", error);
         // Tab might be closed, create a new one
@@ -163,24 +184,51 @@ function stopSearch() {
  */
 chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
   if (request.action === 'start') {
-    // Save price range to storage
+    // Save all settings to storage
+    const settingsToSave = {};
     if (request.minPrice !== undefined || request.maxPrice !== undefined) {
-      chrome.storage.sync.set({
-        minPrice: request.minPrice,
-        maxPrice: request.maxPrice
-      });
+      settingsToSave.minPrice = request.minPrice;
+      settingsToSave.maxPrice = request.maxPrice;
+    }
+    if (request.maxMessages !== undefined) {
+      settingsToSave.maxMessages = request.maxMessages;
+      MAX_MESSAGES = parseInt(request.maxMessages) || 3;
+    }
+    if (request.geminiApiKey !== undefined) {
+      settingsToSave.geminiApiKey = request.geminiApiKey;
+    }
+    if (request.userPersona !== undefined) {
+      settingsToSave.userPersona = request.userPersona;
+    }
+    if (Object.keys(settingsToSave).length > 0) {
+      chrome.storage.sync.set(settingsToSave);
     }
     startSearch(request.keyword || currentKeyword);
     sendResponse({ success: true, message: 'Search started' });
   } else if (request.action === 'stop') {
     stopSearch();
     sendResponse({ success: true, message: 'Search stopped' });
+  } else if (request.action === 'messageSent') {
+    // Update message count
+    messagesSentCount = request.count || 0;
+    const maxMessages = request.maxMessages || MAX_MESSAGES;
+    console.log(`📊 Message count updated: ${messagesSentCount}/${maxMessages}`);
+    
+    // Stop search if we've reached the maximum
+    if (messagesSentCount >= maxMessages) {
+      console.log(`✅ Successfully sent ${maxMessages} messages! Stopping search automatically.`);
+      stopSearch();
+    }
+    
+    sendResponse({ success: true, messagesSent: messagesSentCount, maxMessages: maxMessages });
   } else if (request.action === 'status') {
     sendResponse({ 
       success: true, 
       isRunning: isRunning,
       activeTabId: activeTabId,
-      keyword: currentKeyword
+      keyword: currentKeyword,
+      messagesSent: messagesSentCount,
+      maxMessages: MAX_MESSAGES
     });
   } else if (request.action === 'found') {
     console.log("🎉 Item found! Tab ID:", sender.tab?.id);
