@@ -1,0 +1,98 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8">
+  <style>
+    body {
+      width: 300px;
+      padding: 20px;
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
+      margin: 0;
+    }
+    h1 {
+      font-size: 18px;
+      margin: 0 0 15px 0;
+      color: #1877f2;
+    }
+    .status {
+      padding: 10px;
+      border-radius: 6px;
+      margin-bottom: 15px;
+      font-size: 14px;
+    }
+    .status.running {
+      background-color: #d4edda;
+      color: #155724;
+      border: 1px solid #c3e6cb;
+    }
+    .status.stopped {
+      background-color: #f8d7da;
+      color: #721c24;
+      border: 1px solid #f5c6cb;
+    }
+    button {
+      width: 100%;
+      padding: 12px;
+      font-size: 14px;
+      font-weight: 600;
+      border: none;
+      border-radius: 6px;
+      cursor: pointer;
+      transition: background-color 0.2s;
+    }
+    button.start {
+      background-color: #1877f2;
+      color: white;
+    }
+    button.start:hover {
+      background-color: #166fe5;
+    }
+    button.stop {
+      background-color: #dc3545;
+      color: white;
+    }
+    button.stop:hover {
+      background-color: #c82333;
+    }
+    button:disabled {
+      opacity: 0.6;
+      cursor: not-allowed;
+    }
+    .info {
+      margin-top: 15px;
+      padding: 10px;
+      background-color: #f8f9fa;
+      border-radius: 6px;
+      font-size: 12px;
+      color: #6c757d;
+    }
+  </style>
+</head>
+<body>
+  <h1>🚲 FB Marketplace Helper</h1>
+  
+  <div style="margin-bottom: 15px;">
+    <label for="searchInput" style="display: block; margin-bottom: 5px; font-size: 14px; font-weight: 600;">Search for:</label>
+    <input type="text" id="searchInput" placeholder="e.g., chair, bike, laptop" 
+           style="width: 100%; padding: 8px; border: 1px solid #ddd; border-radius: 4px; font-size: 14px; box-sizing: border-box;">
+  </div>
+  
+  <div id="status" class="status stopped">
+    Status: Stopped
+  </div>
+  
+  <button id="startBtn" class="start">Start Background Search</button>
+  <button id="stopBtn" class="stop" style="display: none; margin-top: 10px;">Stop Search</button>
+  
+  <div class="info">
+    <strong>How it works:</strong><br>
+    • Opens Facebook Marketplace in a background tab<br>
+    • Automatically searches for items matching your keyword<br>
+    • Refreshes every 30 seconds<br>
+    • Works without keeping Facebook open in your active tabs
+  </div>
+
+  <script src="popup.js"></script>
+</body>
+</html>
+

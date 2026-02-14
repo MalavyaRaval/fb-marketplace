@@ -1,21 +1,57 @@
-console.log("🚀 Single Bike Finder Active");
+console.log("🚀 FB Marketplace Finder Active");
 
-const KEYWORD = "bike";
-const MESSAGE_TEXT = "Hi! Is this bike still available? I'm very interested.";
+let KEYWORD = "bike"; // Default, will be loaded from storage
+const MESSAGE_TEXT = "Hi! Is this still available? I'm very interested.";
 
 let isProcessing = false; // Flag to prevent multiple openings
 
-function scanForBikes() {
+// Load keyword from storage
+chrome.storage.sync.get(['searchKeyword'], (result) => {
+  if (result.searchKeyword) {
+    KEYWORD = result.searchKeyword.toLowerCase();
+    console.log(`🔍 Searching for: "${KEYWORD}"`);
+  }
+});
+
+// Notify background script that content script is loaded
+try {
+  chrome.runtime.sendMessage({ action: 'contentScriptLoaded' });
+} catch (e) {
+  // Ignore if background script is not available
+}
+
+function scanForItems() {
   // If we are already messaging someone, don't look for more
   if (isProcessing) return;
 
+  // Reload keyword from storage in case it changed
+  chrome.storage.sync.get(['searchKeyword'], (result) => {
+    if (result.searchKeyword) {
+      KEYWORD = result.searchKeyword.toLowerCase();
+    }
+  });
+
   const listings = document.querySelectorAll('a[href*="/marketplace/item/"]');
+  
+  if (listings.length === 0) {
+    console.log("No listings found on page");
+    return;
+  }
+
+  console.log(`🔍 Scanning ${listings.length} listings for: "${KEYWORD}"`);
   
   for (let listing of listings) {
     const listingText = listing.innerText.toLowerCase();
 
     if (listingText.includes(KEYWORD)) {
-      console.log(`🚲 First bike found! Opening: ${listingText.split('\n')[0]}`);
+      console.log(`✅ Item found! Opening: ${listingText.split('\n')[0]}`);
+      
+      // Notify background script
+      try {
+        chrome.runtime.sendMessage({ action: 'found', item: listingText.split('\n')[0] });
+      } catch (e) {
+        // Ignore if background script is not available
+      }
       
       isProcessing = true; // Lock the script
       listing.click();
@@ -93,10 +129,12 @@ async function handleMessaging() {
 
 // Start the observer
 const observer = new MutationObserver(() => {
-  scanForBikes();
+  scanForItems();
 });
 
 observer.observe(document.body, { childList: true, subtree: true });
 
-// Also run once on start
-scanForBikes();
+// Also run once on start, with a delay to ensure page is loaded
+setTimeout(() => {
+  scanForItems();
+}, 2000);
