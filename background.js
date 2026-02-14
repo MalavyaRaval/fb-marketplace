@@ -163,6 +163,13 @@ function stopSearch() {
  */
 chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
   if (request.action === 'start') {
+    // Save price range to storage
+    if (request.minPrice !== undefined || request.maxPrice !== undefined) {
+      chrome.storage.sync.set({
+        minPrice: request.minPrice,
+        maxPrice: request.maxPrice
+      });
+    }
     startSearch(request.keyword || currentKeyword);
     sendResponse({ success: true, message: 'Search started' });
   } else if (request.action === 'stop') {

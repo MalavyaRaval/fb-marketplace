@@ -77,6 +77,23 @@
            style="width: 100%; padding: 8px; border: 1px solid #ddd; border-radius: 4px; font-size: 14px; box-sizing: border-box;">
   </div>
   
+  <div style="margin-bottom: 15px;">
+    <label style="display: block; margin-bottom: 5px; font-size: 14px; font-weight: 600;">Price Range:</label>
+    <div style="display: flex; gap: 10px;">
+      <div style="flex: 1;">
+        <input type="number" id="minPrice" placeholder="Min $" 
+               style="width: 100%; padding: 8px; border: 1px solid #ddd; border-radius: 4px; font-size: 14px; box-sizing: border-box;">
+      </div>
+      <div style="flex: 1;">
+        <input type="number" id="maxPrice" placeholder="Max $" 
+               style="width: 100%; padding: 8px; border: 1px solid #ddd; border-radius: 4px; font-size: 14px; box-sizing: border-box;">
+      </div>
+    </div>
+    <div style="margin-top: 5px; font-size: 11px; color: #6c757d;">
+      Will message top 3 sellers within budget
+    </div>
+  </div>
+  
   <div id="status" class="status stopped">
     Status: Stopped
   </div>
@@ -87,7 +104,8 @@
   <div class="info">
     <strong>How it works:</strong><br>
     • Opens Facebook Marketplace in a background tab<br>
-    • Automatically searches for items matching your keyword<br>
+    • Filters listings by your price range<br>
+    • Messages only the top 3 sellers within budget<br>
     • Refreshes every 30 seconds<br>
     • Works without keeping Facebook open in your active tabs
   </div>
