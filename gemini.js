@@ -8,14 +8,14 @@
 const CRS_API_BASE = 'https://api-sandbox.stitchcredit.com:443/api';
 
 // Load sensitive credentials from crs.env if running in Node.js
-let CRS_SANDBOX_USERNAME = 'sfhacks_dev39';
-let CRS_SANDBOX_PASSWORD = '2IvPFYq#gCi699&gvuz222FY';
+// Credentials must be set in crs.env (never hardcode in code!)
+let CRS_SANDBOX_USERNAME = undefined;
+let CRS_SANDBOX_PASSWORD = undefined;
 if (typeof process !== 'undefined' && process.env) {
   try {
-    // Only require dotenv if available (Node.js)
     require('dotenv').config({ path: './crs.env' });
-    CRS_SANDBOX_USERNAME = process.env.CRS_SANDBOX_USERNAME || CRS_SANDBOX_USERNAME;
-    CRS_SANDBOX_PASSWORD = process.env.CRS_SANDBOX_PASSWORD || CRS_SANDBOX_PASSWORD;
+    CRS_SANDBOX_USERNAME = process.env.CRS_SANDBOX_USERNAME;
+    CRS_SANDBOX_PASSWORD = process.env.CRS_SANDBOX_PASSWORD;
   } catch (e) {
     // Ignore if dotenv not available (browser)
   }
