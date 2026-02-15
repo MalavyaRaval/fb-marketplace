@@ -30,7 +30,7 @@ Our mission is to democratize sustainable consumption and make climate-conscious
 
 ## 🛠 Technologies Used
 
-- Artificial Intelligence for product analysis and carbon estimation  
+- Artificial Intelligence for product analysis(Gemini) and carbon estimation  
 - CRS API for location-based data retrieval  
 - JavaScript-based recommendation logic  
 - Web-based user interface  
