@@ -53,6 +53,22 @@ chrome.storage.onChanged.addListener((changes, areaName) => {
   }
 });
 
+// Check for webapp payload (sent from the web app via background.js polling)
+chrome.storage.local.get(['findAndSendPayload'], (result) => {
+  if (result.findAndSendPayload) {
+    const payload = result.findAndSendPayload;
+    KEYWORD = (payload.searchKeyword || "").toLowerCase();
+    MIN_PRICE = payload.minPrice !== undefined ? payload.minPrice : null;
+    MAX_PRICE = payload.maxPrice !== undefined ? payload.maxPrice : null;
+    console.log(`🎯 Using webapp payload: keyword="${KEYWORD}" minPrice=${MIN_PRICE} maxPrice=${MAX_PRICE}`);
+    // Store this message to use when sending (it will be used in handleMessaging)
+    if (payload.message) {
+      sessionStorage.setItem('_webappMessage', payload.message);
+      console.log(`💬 Stored webapp message for sending`);
+    }
+  }
+});
+
 // Save messaged listings to storage
 function saveMessagedListings() {
   chrome.storage.sync.set({ 
@@ -357,10 +373,16 @@ async function handleMessaging() {
     console.log("✅ Found message input field");
     textArea.focus();
     
-    // Generate message using Gemini if API key is available
+    // Check if there's a message from the webapp payload
     let messageToSend = "Hi! Is this still available? I'm very interested.";
+    const webappMessage = sessionStorage.getItem('_webappMessage');
     
-    if (GEMINI_API_KEY && currentListingInfo && typeof generateInitialMessage !== 'undefined') {
+    if (webappMessage) {
+      console.log("📩 Using message from webapp");
+      messageToSend = webappMessage;
+      // Clear it so we don't reuse it
+      sessionStorage.removeItem('_webappMessage');
+    } else if (GEMINI_API_KEY && currentListingInfo && typeof generateInitialMessage !== 'undefined') {
       console.log("🤖 Generating message with Gemini AI...");
       try {
         const generatedMessage = await generateInitialMessage(currentListingInfo, GEMINI_API_KEY, USER_PERSONA);
@@ -514,7 +536,7 @@ function sendMessage(textArea, message) {
         setTimeout(() => {
           const url = window.location.href;
           const conversationMatch = url.match(/\/t\/(\d+)/);
-          if (conversationMatch) {
+            if (conversationMatch) {
             const conversationId = conversationMatch[1];
             // Save conversation with listing info
             chrome.storage.sync.get(['conversationListings'], (result) => {
@@ -534,6 +556,18 @@ function sendMessage(textArea, message) {
             // Save our message to history
             if (typeof saveToConversationHistory !== 'undefined') {
               saveToConversationHistory(conversationId, 'user', message);
+            }
+
+            // Attempt to POST a log to the local webapp for tracking
+            try {
+              const WEBAPP_URL = 'http://127.0.0.1:5001';
+              fetch(`${WEBAPP_URL}/api/log-sent`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ conversationId: conversationId, listing: currentListingInfo, message: message })
+              }).catch((err) => console.warn('Failed posting log to webapp:', err));
+            } catch (e) {
+              console.warn('Logging to webapp failed', e);
             }
           }
         }, 500);
@@ -631,6 +665,22 @@ function sendMessage(textArea, message) {
           }
           return;
         }
+        // Try to report the sent message to the webapp in fallback path as well
+        try {
+          const conversationMatch = window.location.href.match(/\/t\/(\d+)/);
+          const conversationId = conversationMatch ? conversationMatch[1] : null;
+          const WEBAPP_URL = 'http://127.0.0.1:5001';
+          if (conversationId) {
+            fetch(`${WEBAPP_URL}/api/log-sent`, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ conversationId: conversationId, listing: currentListingInfo, message: message })
+            }).catch((err) => console.warn('Failed posting log to webapp (fallback):', err));
+          }
+        } catch (e) {
+          console.warn('Logging to webapp failed (fallback)', e);
+        }
+
         setTimeout(() => processNextListing(), 2000);
       }, 2000);
     }
@@ -648,3 +698,513 @@ observer.observe(document.body, { childList: true, subtree: true });
 setTimeout(() => {
   scanForItems();
 }, 2000);
+// ============================
+// Content Script: content.js
+// Ecommerce Sustainable Alternatives Extension
+// ============================
+
+const API_BASE_URL = "http://localhost:5001/api";
+
+// Site detection and product extraction logic
+const SITE_HANDLERS = {
+  "amazon.com": {
+    getProductTitle: () => {
+      const titleEl = document.querySelector("h1 span") || document.querySelector("#productTitle");
+      return titleEl ? titleEl.textContent.trim() : null;
+    },
+    getProductPrice: () => {
+      const priceEl = document.querySelector(".a-price-whole") || document.querySelector("[data-a-color='price']");
+      return priceEl ? parseFloat(priceEl.textContent.replace(/[^\d.]/g, "")) : null;
+    },
+    getProductDescription: () => {
+      const descEl = document.querySelector("#feature-bullets");
+      return descEl ? descEl.textContent.trim() : null;
+    }
+  },
+  "target.com": {
+    getProductTitle: () => {
+      const titleEl = document.querySelector("h1[data-testid='product-title']");
+      return titleEl ? titleEl.textContent.trim() : null;
+    },
+    getProductPrice: () => {
+      const priceEl = document.querySelector("[data-testid='product-price']");
+      return priceEl ? parseFloat(priceEl.textContent.replace(/[^\d.]/g, "")) : null;
+    },
+    getProductDescription: () => {
+      const descEl = document.querySelector("[data-testid='product-description']");
+      return descEl ? descEl.textContent.trim() : null;
+    }
+  },
+  "bestbuy.com": {
+    getProductTitle: () => {
+      const titleEl = document.querySelector("h1.sku-title");
+      return titleEl ? titleEl.textContent.trim() : null;
+    },
+    getProductPrice: () => {
+      const priceEl = document.querySelector("[data-testid='priceView']");
+      return priceEl ? parseFloat(priceEl.textContent.replace(/[^\d.]/g, "")) : null;
+    },
+    getProductDescription: () => {
+      const descEl = document.querySelector(".sku-details");
+      return descEl ? descEl.textContent.trim() : null;
+    }
+  },
+  "walmart.com": {
+    getProductTitle: () => {
+      const titleEl = document.querySelector("h1[itemprop='name']");
+      return titleEl ? titleEl.textContent.trim() : null;
+    },
+    getProductPrice: () => {
+      const priceEl = document.querySelector("[data-automation-id='product-price']");
+      return priceEl ? parseFloat(priceEl.textContent.replace(/[^\d.]/g, "")) : null;
+    },
+    getProductDescription: () => {
+      return document.body.innerText.substring(0, 500);
+    }
+  },
+  "ebay.com": {
+    getProductTitle: () => {
+      const titleEl = document.querySelector("h1.it-title");
+      return titleEl ? titleEl.textContent.trim() : null;
+    },
+    getProductPrice: () => {
+      const priceEl = document.querySelector(".vi-VR-cvipPrice");
+      return priceEl ? parseFloat(priceEl.textContent.replace(/[^\d.]/g, "")) : null;
+    },
+    getProductDescription: () => {
+      const descEl = document.querySelector("#viTabs_0_panel");
+      return descEl ? descEl.textContent.trim() : null;
+    }
+  }
+};
+
+// Detect current site
+function getCurrentSite() {
+  const hostname = window.location.hostname;
+  for (const site in SITE_HANDLERS) {
+    if (hostname.includes(site)) {
+      return site;
+    }
+  }
+  return null;
+}
+
+// Extract product information
+function extractProductInfo() {
+  const site = getCurrentSite();
+  if (!site || !SITE_HANDLERS[site]) return null;
+
+  const handler = SITE_HANDLERS[site];
+  const title = handler.getProductTitle?.();
+  const price = handler.getProductPrice?.();
+  const description = handler.getProductDescription?.();
+
+  if (!title) return null;
+
+  return {
+    site,
+    title,
+    price,
+    description
+  };
+}
+
+// ============================
+// User Detection & CRS Lookup
+// ============================
+
+// Detect if user is logged in on ecommerce site
+function detectLoggedInUser() {
+  const site = getCurrentSite();
+  if (!site) return null;
+
+  const userDetectors = {
+    "amazon.com": () => {
+      // Check for Amazon account info
+      const accountLink = document.querySelector("a[href*='/nav/giftcards']");
+      if (accountLink?.textContent?.includes("Hello")) {
+        return {
+          email: localStorage.getItem("amazon_email") || localStorage.getItem("user_email"),
+          name: accountLink.textContent.replace("Hello,", "").trim()
+        };
+      }
+      // Try to extract from page
+      const helloText = Array.from(document.querySelectorAll("*"))
+        .find(el => el.textContent?.includes("Hello,"));
+      if (helloText) {
+        return {
+          name: helloText.textContent.replace("Hello,", "").trim(),
+          source: "amazon"
+        };
+      }
+      return null;
+    },
+    "target.com": () => {
+      // Check Target account indicator
+      const accountIcon = document.querySelector("[aria-label*='account']");
+      if (accountIcon) {
+        return { source: "target", logged_in: true };
+      }
+      return null;
+    },
+    "walmart.com": () => {
+      // Check Walmart account
+      const account = document.querySelector("a[href*='account']");
+      if (account) {
+        return { source: "walmart", logged_in: true };
+      }
+      return null;
+    },
+    "bestbuy.com": () => {
+      // Check Best Buy account
+      const acctLink = document.querySelector("[href*='account']");
+      if (acctLink) {
+        return { source: "bestbuy", logged_in: true };
+      }
+      return null;
+    },
+    "ebay.com": () => {
+      // Check eBay account
+      const myEbay = document.querySelector("a[href*='myebay']");
+      if (myEbay) {
+        return { source: "ebay", logged_in: true };
+      }
+      return null;
+    }
+  };
+
+  const detector = userDetectors[site];
+  if (detector) {
+    try {
+      return detector();
+    } catch (e) {
+      console.error("Error detecting user:", e);
+      return null;
+    }
+  }
+  return null;
+}
+
+// Look up user in CRS database
+async function lookupUserInCRS(userInfo) {
+  if (!userInfo) return null;
+
+  try {
+    // If we have email, use it
+    if (userInfo.email) {
+      const response = await fetch(`${API_BASE_URL}/lookup-user-by-email`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ email: userInfo.email })
+      });
+      if (response.ok) {
+        const data = await response.json();
+        return data.success ? data.user_profile : null;
+      }
+    }
+
+    // If we have name, try name-based lookup
+    if (userInfo.name) {
+      console.log("Note: Using detected name for personalization");
+      // Extract year of birth if possible or use default
+      const dob = prompt("For personalized recommendations, please enter your date of birth (MM/DD/YYYY):");
+      if (dob) {
+        const response = await fetch(`${API_BASE_URL}/lookup-user`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            name: userInfo.name,
+            dob: dob
+          })
+        });
+        if (response.ok) {
+          const data = await response.json();
+          return data.success ? data.user_profile : null;
+        }
+      }
+    }
+
+    return null;
+  } catch (error) {
+    console.error("Error looking up user in CRS:", error);
+    return null;
+  }
+}
+
+// Fetch sustainable alternatives from backend
+async function fetchSustainableAlternatives(productInfo, userProfile = null) {
+  try {
+    const requestBody = {
+      productName: productInfo.title,
+      currentPrice: productInfo.price,
+      description: productInfo.description
+    };
+
+    // Include user profile for personalization if available
+    if (userProfile) {
+      requestBody.userProfile = userProfile;
+    }
+
+    const response = await fetch(`${API_BASE_URL}/find-sustainable-products`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json"
+      },
+      body: JSON.stringify(requestBody)
+    });
+
+    if (!response.ok) throw new Error("API request failed");
+
+    const data = await response.json();
+    return data.success ? data.alternatives : [];
+  } catch (error) {
+    console.error("Error fetching sustainable alternatives:", error);
+    return [];
+  }
+}
+
+// Render the sustainable products div
+function renderSustainableDiv(alternatives, userProfile = null) {
+  // Avoid duplicate rendering
+  if (document.getElementById("sustainable-products-container")) {
+    return;
+  }
+
+  const container = document.createElement("div");
+  container.id = "sustainable-products-container";
+  container.style.cssText = `
+    background: linear-gradient(135deg, #e8f5e9 0%, #f1f8e9 100%);
+    border: 2px solid #4caf50;
+    border-radius: 12px;
+    padding: 24px;
+    margin: 24px 0;
+    box-shadow: 0 4px 12px rgba(76, 175, 80, 0.15);
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  `;
+
+  let alternativesHTML = alternatives.map((alt, index) => {
+    const savingsText = typeof alt.co2_savings === 'number' 
+      ? `${alt.co2_savings} kg CO₂`
+      : alt.co2_savings;
+
+    const priceText = typeof alt.price === 'number' 
+      ? `$${alt.price.toFixed(2)}`
+      : alt.price;
+
+    const badge = alt.badge ? `
+      <div style="
+        background: #fff59d;
+        color: #f57f17;
+        padding: 4px 8px;
+        border-radius: 4px;
+        font-size: 11px;
+        font-weight: 700;
+        margin-bottom: 8px;
+      ">
+        ${alt.badge}
+      </div>
+    ` : "";
+
+    return `
+      <div style="
+        background: white;
+        border-radius: 10px;
+        padding: 16px;
+        margin-bottom: 16px;
+        border-left: 4px solid #4caf50;
+        transition: transform 0.2s, box-shadow 0.2s;
+      " onmouseover="this.style.transform='translateX(4px)'; this.style.boxShadow='0 4px 12px rgba(0,0,0,0.1)'" 
+         onmouseout="this.style.transform='translateX(0)'; this.style.boxShadow='none'">
+        ${badge}
+        <div style="display: flex; justify-content: space-between; align-items: start; gap: 12px;">
+          <div style="flex: 1;">
+            <h3 style="
+              margin: 0 0 8px 0;
+              font-size: 16px;
+              font-weight: 600;
+              color: #1b5e20;
+            ">
+              🌱 ${escapeHtml(alt.name)}
+            </h3>
+            <p style="
+              margin: 0 0 10px 0;
+              font-size: 13px;
+              color: #555;
+              line-height: 1.4;
+            ">
+              ${escapeHtml(alt.reason || alt.sustainable_reason || "Sustainable alternative")}
+            </p>
+            ${alt.note ? `<p style="font-size: 12px; color: #ff8f00; margin: 0 0 8px 0;">⚠️ ${escapeHtml(alt.note)}</p>` : ""}
+            <div style="display: flex; gap: 12px; align-items: center;">
+              <span style="
+                background: #c8e6c9;
+                color: #1b5e20;
+                padding: 6px 12px;
+                border-radius: 20px;
+                font-size: 12px;
+                font-weight: 600;
+              ">
+                💚 Save ${savingsText}
+              </span>
+              <span style="
+                background: #e3f2fd;
+                color: #1565c0;
+                padding: 6px 12px;
+                border-radius: 20px;
+                font-size: 12px;
+                font-weight: 600;
+              ">
+                💰 ${priceText}
+              </span>
+            </div>
+          </div>
+        </div>
+      </div>
+    `;
+  }).join("");
+
+  if (alternatives.length === 0) {
+    alternativesHTML = `
+      <div style="
+        text-align: center;
+        padding: 20px;
+        color: #666;
+      ">
+        <p>🔄 No sustainable alternatives found at this time.</p>
+        <p style="font-size: 12px; margin-top: 8px;">Check back soon for more options!</p>
+      </div>
+    `;
+  }
+
+  container.innerHTML = `
+    <div style="margin-bottom: 16px;">
+      <h2 style="
+        margin: 0 0 8px 0;
+        font-size: 22px;
+        font-weight: 700;
+        color: #1b5e20;
+        display: flex;
+        align-items: center;
+        gap: 8px;
+      ">
+        🌍 Sustainable Alternatives
+        ${userProfile ? `<span style="font-size: 12px; background: #4caf50; color: white; padding: 2px 8px; border-radius: 12px;">📊 Personalized</span>` : ""}
+      </h2>
+      <p style="
+        margin: 0;
+        font-size: 13px;
+        color: #558b2f;
+      ">
+        ${userProfile ? `Recommendations tailored to your profile (${userProfile.score_tier})` : "Consider these eco-friendly options that reduce carbon emissions"}
+      </p>
+    </div>
+
+    ${alternativesHTML}
+
+    <div style="
+      background: white;
+      border-radius: 8px;
+      padding: 12px;
+      margin-top: 16px;
+      font-size: 12px;
+      color: #666;
+      border: 1px solid #ddd;
+    ">
+      <strong>💡 About CO₂ Savings:</strong> Figures represent estimated reduction compared to 
+      purchasing new products. Actual savings depend on shipping, usage patterns, and end-of-life disposal.
+    </div>
+  `;
+
+  // Find the best place to insert the div
+  const mainContent = document.querySelector("main") || 
+                      document.querySelector("[role='main']") ||
+                      document.body;
+
+  // Insert near the top but below the product title
+  const productTitle = document.querySelector("h1") || document.querySelector("[role='heading']");
+  if (productTitle && productTitle.nextSibling) {
+    productTitle.parentNode.insertBefore(container, productTitle.nextSibling);
+  } else {
+    mainContent.insertBefore(container, mainContent.firstChild);
+  }
+}
+
+// Utility function to escape HTML
+function escapeHtml(text) {
+  const div = document.createElement("div");
+  div.textContent = text;
+  return div.innerHTML;
+}
+
+// Initialize the extension
+async function init() {
+  try {
+    const productInfo = extractProductInfo();
+    
+    if (!productInfo) {
+      console.log("Could not extract product information from this page");
+      return;
+    }
+
+    console.log("Found product:", productInfo);
+
+    // Detect if user is logged in and try to get their CRS profile
+    let userProfile = null;
+    const loggedInUser = detectLoggedInUser();
+    
+    if (loggedInUser) {
+      console.log("Detected logged-in user:", loggedInUser);
+      userProfile = await lookupUserInCRS(loggedInUser);
+      if (userProfile) {
+        console.log("Found user profile:", userProfile);
+      }
+    }
+
+    // Add loading div
+    const loadingDiv = document.createElement("div");
+    loadingDiv.id = "sustainable-products-container";
+    loadingDiv.style.cssText = `
+      background: #f5f5f5;
+      border: 2px solid #e0e0e0;
+      border-radius: 12px;
+      padding: 24px;
+      margin: 24px 0;
+      text-align: center;
+      color: #666;
+    `;
+    loadingDiv.innerHTML = `
+      <p style="margin: 0; font-size: 14px;">
+        🔍 Finding sustainable alternatives${userProfile ? " personalized for you" : ""}...
+      </p>
+    `;
+
+    const mainContent = document.querySelector("main") || 
+                        document.querySelector("[role='main']") ||
+                        document.body;
+    const productTitle = document.querySelector("h1") || document.querySelector("[role='heading']");
+    if (productTitle && productTitle.nextSibling) {
+      productTitle.parentNode.insertBefore(loadingDiv, productTitle.nextSibling);
+    } else {
+      mainContent.insertBefore(loadingDiv, mainContent.firstChild);
+    }
+
+    // Fetch alternatives (with personalization if user profile available)
+    const alternatives = await fetchSustainableAlternatives(productInfo, userProfile);
+    
+    // Remove loading div
+    loadingDiv.remove();
+    
+    // Render final div with user profile info
+    renderSustainableDiv(alternatives, userProfile);
+
+  } catch (error) {
+    console.error("Error in sustainability extension:", error);
+  }
+}
+
+// Wait for DOM to be ready
+if (document.readyState === "loading") {
+  document.addEventListener("DOMContentLoaded", init);
+} else {
+  init();
+}

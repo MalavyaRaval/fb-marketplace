@@ -1,4 +1,3 @@
-<<<<<<< HEAD
 console.log("🚀 Background Service Worker Started");
 
 // Configuration
@@ -11,14 +10,12 @@ let searchInterval = null;
 let currentKeyword = "bike"; // Default keyword
 let messagesSentCount = 0; // Track how many messages have been sent
 let MAX_MESSAGES = 3; // Maximum number of messages to send (configurable)
-
 /**
  * Gets the marketplace search URL for a given keyword
  */
 function getMarketplaceUrl(keyword) {
   if (!keyword || keyword.trim() === "") {
     return "https://www.facebook.com/marketplace";
-  }
   // Facebook Marketplace search URL format
   return `https://www.facebook.com/marketplace/search/?query=${encodeURIComponent(keyword.trim())}`;
 }
@@ -29,37 +26,29 @@ function getMarketplaceUrl(keyword) {
 async function createBackgroundTab(keyword) {
   try {
     const marketplaceUrl = getMarketplaceUrl(keyword);
-    
     // Check if we already have an active tab
     if (activeTabId) {
       try {
         const tab = await chrome.tabs.get(activeTabId);
         if (tab && !tab.url.includes('marketplace')) {
           // Tab exists but is not on marketplace, update it
-          await chrome.tabs.update(activeTabId, { url: marketplaceUrl });
-          return activeTabId;
-        } else if (tab && tab.url !== marketplaceUrl) {
-          // Tab is on marketplace but different search, update it
-          await chrome.tabs.update(activeTabId, { url: marketplaceUrl });
-          return activeTabId;
-        } else if (tab) {
-          // Tab is already on the correct marketplace URL
-          return activeTabId;
-        }
-      } catch (e) {
-        // Tab doesn't exist anymore, reset
-        activeTabId = null;
-      }
-    }
-
+          } else if (tab && tab.url !== marketplaceUrl) {
+            // Tab is on marketplace but different search, update it
+            await chrome.tabs.update(activeTabId, { url: marketplaceUrl });
+          } else if (tab) {
+            // Tab is already on the correct marketplace URL
+            return activeTabId;
+        } catch (e) {
+          // Tab doesn't exist anymore, reset
+          activeTabId = null;
     // Create new background tab
     const tab = await chrome.tabs.create({
       url: marketplaceUrl,
       active: false // Open in background
     });
 
-    activeTabId = tab.id;
-    console.log(`✅ Created background tab: ${tab.id} for search: "${keyword}"`);
+  activeTabId = tab.id;
+  console.log(`✅ Created background tab: ${tab.id} for search: "${keyword}"`);
 
     // Wait for tab to load, then inject script
     chrome.tabs.onUpdated.addListener(function listener(tabId, changeInfo) {
@@ -67,9 +56,9 @@ async function createBackgroundTab(keyword) {
         chrome.tabs.onUpdated.removeListener(listener);
         injectContentScript(tabId);
       }
-    });
+  });
 
-    return tab.id;
+  return tab.id;
   } catch (error) {
     console.error("❌ Error creating background tab:", error);
     return null;
@@ -98,17 +87,12 @@ async function startSearch(keyword) {
   if (isRunning) {
     console.log("⚠️ Search is already running");
     return;
-  }
-
   if (!keyword || keyword.trim() === "") {
     console.error("❌ No search keyword provided");
     return;
-  }
-
   currentKeyword = keyword.trim();
   isRunning = true;
   messagesSentCount = 0; // Reset message count when starting new search
-  
   // Load maxMessages from storage
   chrome.storage.sync.get(['maxMessages'], (result) => {
     if (result.maxMessages) {
@@ -131,20 +115,18 @@ async function startSearch(keyword) {
   searchInterval = setInterval(async () => {
     // Stop refreshing if we've reached the maximum number of messages
     if (messagesSentCount >= MAX_MESSAGES) {
-      console.log(`✅ Reached maximum of ${MAX_MESSAGES} messages. Stopping refresh.`);
-      stopSearch();
-      return;
-    }
-    
+  console.log(`✅ Reached maximum of ${MAX_MESSAGES} messages. Stopping refresh.`);
+  stopSearch();
+  return;
     if (activeTabId) {
       try {
         // Refresh the marketplace page
         await chrome.tabs.reload(activeTabId);
         console.log(`🔄 Refreshed marketplace page for: "${currentKeyword}" (${messagesSentCount}/${MAX_MESSAGES} messages sent)`);
       } catch (error) {
-        console.error("❌ Error refreshing tab:", error);
-        // Tab might be closed, create a new one
-        activeTabId = null;
+  console.error("❌ Error refreshing tab:", error);
+  // Tab might be closed, create a new one
+  activeTabId = null;
         await createBackgroundTab(currentKeyword);
       }
     } else {
@@ -160,15 +142,12 @@ function stopSearch() {
   if (!isRunning) {
     console.log("⚠️ Search is not running");
     return;
-  }
-
   isRunning = false;
   
   if (searchInterval) {
     clearInterval(searchInterval);
     searchInterval = null;
   }
-
   // Close the background tab
   if (activeTabId) {
     chrome.tabs.remove(activeTabId).catch(() => {
@@ -203,34 +182,31 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
     }
     if (Object.keys(settingsToSave).length > 0) {
       chrome.storage.sync.set(settingsToSave);
-    }
-    startSearch(request.keyword || currentKeyword);
-    sendResponse({ success: true, message: 'Search started' });
+  }
+  startSearch(request.keyword || currentKeyword);
+  sendResponse({ success: true, message: 'Search started' });
   } else if (request.action === 'stop') {
     stopSearch();
     sendResponse({ success: true, message: 'Search stopped' });
   } else if (request.action === 'messageSent') {
-    // Update message count
-    messagesSentCount = request.count || 0;
-    const maxMessages = request.maxMessages || MAX_MESSAGES;
-    console.log(`📊 Message count updated: ${messagesSentCount}/${maxMessages}`);
+  // Update message count
+  messagesSentCount = request.count || 0;
+  const maxMessages = request.maxMessages || MAX_MESSAGES;
+  console.log(`📊 Message count updated: ${messagesSentCount}/${maxMessages}`);
     
-    // Clean up the payload from local storage
-    chrome.storage.local.remove(['findAndSendPayload', '__lastConsumedMessage']);
-    
-    // Stop search if we've reached the maximum
+  // Stop search if we've reached the maximum
     if (messagesSentCount >= maxMessages) {
       console.log(`✅ Successfully sent ${maxMessages} messages! Stopping search automatically.`);
       stopSearch();
-    }
+  }
     
-    sendResponse({ success: true, messagesSent: messagesSentCount, maxMessages: maxMessages });
+  sendResponse({ success: true, messagesSent: messagesSentCount, maxMessages: maxMessages });
   } else if (request.action === 'status') {
     sendResponse({ 
       success: true, 
-      isRunning: isRunning,
-      activeTabId: activeTabId,
-      keyword: currentKeyword,
+  isRunning: isRunning,
+  activeTabId: activeTabId,
+  keyword: currentKeyword,
       messagesSent: messagesSentCount,
       maxMessages: MAX_MESSAGES
     });
@@ -272,11 +248,23 @@ chrome.tabs.onRemoved.addListener((tabId) => {
 // Auto-start on extension load (optional - you can remove this if you want manual start)
 // Uncomment the line below if you want it to start automatically
 // startSearch();
-
-// ===== WEBAPP INTEGRATION: Poll for payloads from the web app =====
+// Background polling to fetch payload from web app and trigger sender flow
 const WEBAPP_URL = "http://127.0.0.1:5001";
+
+// Keep existing onMessage handler used by content scripts
+chrome.runtime.onMessage.addListener((request, _sender, sendResponse) => {
+  if (request.action === "getMessage") {
+    fetch(`${WEBAPP_URL}/api/latest-message`)
+      .then((r) => r.json())
+      .then((data) => sendResponse({ success: true, ...data }))
+      .catch((err) => sendResponse({ success: false, error: err.message }));
+    return true;
+  }
+});
+
+// Poll the webapp periodically using chrome.alarms
 const POLL_ALARM = "poll_webapp_latest_message";
-const POLL_INTERVAL_MINUTES = 0.1; // ~6 seconds
+const POLL_INTERVAL_MINUTES = 0.1; // ~6 seconds (min granularity is browser-dependent)
 
 function scheduleAlarm() {
   try {
@@ -307,7 +295,7 @@ async function handleLatestMessagePolling() {
     const res = await fetch(`${WEBAPP_URL}/api/latest-message`);
     if (!res.ok) return;
     const data = await res.json();
-    const { message, searchKeyword, minPrice, maxPrice } = data || {};
+    const { message, searchKeyword } = data || {};
     if (!message || !message.trim() || !searchKeyword || !searchKeyword.trim()) return;
 
     // Avoid duplicate processing: track lastPayload in storage
@@ -321,13 +309,27 @@ async function handleLatestMessagePolling() {
       findAndSendPayload: {
         message: message,
         searchKeyword: searchKeyword.trim(),
-        maxPrice: maxPrice || null,
-        minPrice: minPrice || null,
+        maxPrice: data.maxPrice || null,
+        minPrice: data.minPrice || null,
       },
     });
 
-    // Start the search with this keyword (content.js will use the payload)
-    await startSearch(searchKeyword.trim());
+    // Open Facebook Marketplace search in background (non-active)
+    const url = `https://www.facebook.com/marketplace/search/?query=${encodeURIComponent(searchKeyword.trim())}`;
+    try {
+      const tab = await chrome.tabs.create({ url, active: false });
+      // remember the tab we opened so we can close it later
+      await chrome.storage.local.set({ __lastOpenedTabId: tab.id });
+    } catch (e) {
+      // fallback: update an existing facebook tab if available
+      try {
+        const tabs = await chrome.tabs.query({ url: "*://www.facebook.com/*" });
+        if (tabs && tabs.length > 0) await chrome.tabs.update(tabs[0].id, { url });
+        else await chrome.tabs.create({ url, active: false });
+      } catch (e2) {
+        console.warn("Failed to open/update FB tab:", e2);
+      }
+    }
 
     // Mark consumed so we don't re-send
     await chrome.storage.local.set({ __lastConsumedMessage: signature });
@@ -345,29 +347,29 @@ chrome.alarms.onAlarm.addListener((alarm) => {
   }
 });
 
-=======
-// ============================
-// Background Service Worker
-// Sustainable Products Extension
-// ============================
+// Listen for notifications from content script that message was sent
+chrome.runtime.onMessage.addListener(async (request, sender, sendResponse) => {
+  if (request && request.action === 'sent') {
+    try {
+      const st = await chrome.storage.local.get(['__lastOpenedTabId']);
+      const tid = st.__lastOpenedTabId;
+      if (tid) {
+        try {
+          await chrome.tabs.remove(tid);
+        } catch (e) {
+          // ignore
+        }
+        await chrome.storage.local.remove('__lastOpenedTabId');
+      } else if (sender && sender.tab && sender.tab.id) {
+        try { await chrome.tabs.remove(sender.tab.id); } catch (e) {}
+      }
 
-console.log("Sustainable Products Extension loaded");
-
-// Listen for installation
-chrome.runtime.onInstalled.addListener((details) => {
-  if (details.reason === "install") {
-    console.log("Extension installed successfully");
-  } else if (details.reason === "update") {
-    console.log("Extension updated");
+      // remove any transient payload after send
+      await chrome.storage.local.remove('findAndSendPayload');
+      sendResponse({ success: true });
+    } catch (e) {
+      sendResponse({ success: false, error: e.message });
+    }
+    return true;
   }
 });
-
-// Optional: Message handler for future extensions
-chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
-  if (message.type === "GET_PRODUCT_INFO") {
-    // Handle any product info requests if needed
-    sendResponse({ received: true });
-  }
-  return true;
-});
->>>>>>> 664bfa6 (code to show personlaized similar product recommendation based on crs api)
