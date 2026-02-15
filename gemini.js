@@ -1,4 +1,92 @@
 /**
+ * CRS (StitchCredit) API Integration
+ * Handles authentication and credit report requests
+ */
+
+
+
+const CRS_API_BASE = 'https://api-sandbox.stitchcredit.com:443/api';
+
+// Load sensitive credentials from crs.env if running in Node.js
+let CRS_SANDBOX_USERNAME = 'sfhacks_dev39';
+let CRS_SANDBOX_PASSWORD = '2IvPFYq#gCi699&gvuz222FY';
+if (typeof process !== 'undefined' && process.env) {
+  try {
+    // Only require dotenv if available (Node.js)
+    require('dotenv').config({ path: './crs.env' });
+    CRS_SANDBOX_USERNAME = process.env.CRS_SANDBOX_USERNAME || CRS_SANDBOX_USERNAME;
+    CRS_SANDBOX_PASSWORD = process.env.CRS_SANDBOX_PASSWORD || CRS_SANDBOX_PASSWORD;
+  } catch (e) {
+    // Ignore if dotenv not available (browser)
+  }
+}
+
+/**
+ * Get CRS access token (Bearer auth)
+ */
+/**
+ * Get CRS access token (Bearer auth)
+ * @param {string} [username] - Optional username override
+ * @param {string} [password] - Optional password override
+ */
+async function getCrsAccessToken(username, password) {
+  username = username || CRS_SANDBOX_USERNAME;
+  password = password || CRS_SANDBOX_PASSWORD;
+  try {
+    const response = await fetch(`${CRS_API_BASE}/users/login`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Accept': 'application/json',
+      },
+      body: JSON.stringify({ username, password })
+    });
+    if (!response.ok) {
+      const errorData = await response.json().catch(() => ({}));
+      console.error('❌ CRS login error:', errorData);
+      return null;
+    }
+    const data = await response.json();
+    if (data.token) {
+      return data.token;
+    }
+    console.error('❌ Unexpected CRS login response:', data);
+    return null;
+  } catch (error) {
+    console.error('❌ Error calling CRS login:', error);
+    return null;
+  }
+}
+
+/**
+ * Request CRS credit report (Experian)
+ * @param {string} token - Bearer token from getCrsAccessToken
+ * @param {object} reportData - Credit report request body
+ */
+async function requestCrsCreditReport(token, reportData) {
+  try {
+    const response = await fetch(`${CRS_API_BASE}/experian/credit-profile/credit-report/standard/exp-prequal-vantage4`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Accept': 'application/json',
+        'Authorization': `Bearer ${token}`,
+      },
+      body: JSON.stringify(reportData)
+    });
+    if (!response.ok) {
+      const errorData = await response.json().catch(() => ({}));
+      console.error('❌ CRS credit report error:', errorData);
+      return null;
+    }
+    const data = await response.json();
+    return data;
+  } catch (error) {
+    console.error('❌ Error calling CRS credit report:', error);
+    return null;
+  }
+}
+/**
  * Gemini API Integration
  * Handles all AI-powered message generation
  */
@@ -152,6 +240,8 @@ if (typeof module !== 'undefined' && module.exports) {
     generateReplyMessage,
     getConversationHistory,
     saveToConversationHistory
+    ,getCrsAccessToken
+    ,requestCrsCreditReport
   };
 }
 
